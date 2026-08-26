@@ -1,0 +1,115 @@
+version: '3.8'
+services:
+  mariadb:
+    image: docker.io/library/mariadb:10.11
+    container_name: branch-mariadb
+    network_mode: host
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./data/mariadb:/var/lib/mysql:Z
+  gitea:
+    image: docker.io/gitea/gitea:1.21
+    container_name: branch-gitea
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - GITEA__server__HTTP_PORT=3004
+      - GITEA__server__SSH_LISTEN_PORT=2222
+      - GITEA__server__SSH_PORT=2222
+      - GITEA__database__DB_TYPE=sqlite3
+      - GITEA__server__ROOT_URL=http://localhost:8080/git/
+    volumes:
+      - ./data/gitea:/data:Z
+  wikijs:
+    image: docker.io/requarks/wiki:2
+    container_name: branch-wikijs
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      DB_TYPE: mariadb
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASSWORD}
+  uptime-kuma:
+    image: docker.io/louislam/uptime-kuma:1
+    container_name: branch-uptime-kuma
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+    volumes:
+      - ./data/uptime-kuma:/app/data:Z
+  node_exporter:
+    image: docker.io/prom/node-exporter:latest
+    container_name: branch-node-exporter
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - '--web.listen-address=127.0.0.1:9100'
+  prometheus:
+    image: docker.io/prom/prometheus:latest
+    container_name: branch-prometheus
+    network_mode: host
+    restart: unless-stopped
+    user: "1000:1000"
+    volumes:
+      - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,Z
+      - ./data/prometheus:/prometheus:Z
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.listen-address=127.0.0.1:9090'
+  loki:
+    image: docker.io/grafana/loki:latest
+    container_name: branch-loki
+    network_mode: host
+    restart: unless-stopped
+    user: "1000:1000"
+    volumes:
+      - ./configs/loki/loki-config.yml:/etc/loki/local-config.yaml:ro,Z
+      - ./data/loki:/loki:Z
+    command:
+      - '-config.file=/etc/loki/local-config.yaml'
+  promtail:
+    image: docker.io/grafana/promtail:latest
+    container_name: branch-promtail
+    network_mode: host
+    restart: unless-stopped
+    user: "1000:1000"
+    volumes:
+      - ./configs/promtail/promtail-config.yml:/etc/promtail/config.yml:ro,Z
+      - /var/log:/var/log:ro
+    command:
+      - '-config.file=/etc/promtail/config.yml'
+  grafana:
+    image: docker.io/grafana/grafana:latest
+    container_name: branch-grafana
+    network_mode: host
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SERVER_HTTP_PORT=3002
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s:%(http_port)s/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=true
+    volumes:
+      - ./data/grafana:/var/lib/grafana:Z
+  nginx:
+    image: docker.io/library/nginx:alpine
+    container_name: branch-nginx
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./configs/nginx/conf.d:/etc/nginx/conf.d:ro,Z
